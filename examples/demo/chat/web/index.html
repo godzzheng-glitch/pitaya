@@ -2,60 +2,392 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat Demo</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #container {
+            width: 100%;
+            max-width: 800px;
+            height: 90vh;
+            background: #1e1e2f;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: #25253d;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #33334d;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #8888a8;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+            box-shadow: 0 0 8px #4ade80;
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+        }
+
+        .message-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            display: flex;
+            flex-direction: column;
+            max-width: 70%;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .message.own {
+            align-self: flex-end;
+        }
+
+        .message.other {
+            align-self: flex-start;
+        }
+
+        .message.system {
+            align-self: center;
+            max-width: 90%;
+        }
+
+        .message-meta {
+            font-size: 12px;
+            color: #8888a8;
+            margin-bottom: 4px;
+            padding: 0 8px;
+        }
+
+        .message.own .message-meta {
+            text-align: right;
+        }
+
+        .message-bubble {
+            padding: 10px 14px;
+            border-radius: 16px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+
+        .message.own .message-bubble {
+            background: #6366f1;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.other .message-bubble {
+            background: #2d2d44;
+            color: #e0e0e0;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message.system .message-bubble {
+            background: #33334d;
+            color: #a0a0b8;
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .controls {
+            background: #25253d;
+            padding: 16px 24px;
+            border-top: 1px solid #33334d;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .nickname-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 150px;
+        }
+
+        .nickname-wrapper label {
+            font-size: 13px;
+            color: #8888a8;
+            white-space: nowrap;
+        }
+
+        .controls input[type="text"] {
+            background: #1e1e2f;
+            border: 1px solid #3f3f5f;
+            border-radius: 10px;
+            color: #fff;
+            padding: 10px 14px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .controls input[type="text"]:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+
+        #nickname {
+            width: 140px;
+        }
+
+        #messageInput {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .controls button {
+            background: #6366f1;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 22px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .controls button:hover {
+            background: #4f46e5;
+        }
+
+        .controls button:active {
+            transform: scale(0.96);
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #555570;
+            margin: auto;
+            font-size: 14px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 600px) {
+            #container {
+                height: 100vh;
+                border-radius: 0;
+                max-width: 100%;
+            }
+
+            .controls {
+                flex-wrap: wrap;
+                padding: 12px 16px;
+            }
+
+            .nickname-wrapper {
+                width: 100%;
+                min-width: 0;
+            }
+
+            #nickname {
+                flex: 1;
+            }
+
+            #messageInput {
+                flex: 1;
+            }
+
+            .message {
+                max-width: 85%;
+            }
+        }
+    </style>
 </head>
 <body>
 <div id="container">
-    <ul>
-        <li v-for="msg in messages">[<span style="color:red;">{{msg.name}}</span>]{{msg.content}}</li>
-    </ul>
+    <div class="header">
+        <h1>💬 Chat Room</h1>
+        <div class="status">
+            <span class="status-dot" v-class="disconnected: !connected"></span>
+            <span>{{ connected ? 'Online' : 'Offline' }}</span>
+        </div>
+    </div>
+
+    <div class="message-list" id="messageList">
+        <div v-if="messages.length === 0" class="empty-state">
+            No messages yet. Say hi!
+        </div>
+        <div v-for="msg in messages"
+             class="message"
+             v-class="own: msg.name === nickname && msg.type !== 'system', other: msg.name !== nickname && msg.type !== 'system', system: msg.type === 'system'">
+            <div class="message-meta" v-if="msg.type !== 'system'">
+                {{msg.name}} · {{msg.time}}
+            </div>
+            <div class="message-bubble">
+                {{msg.content}}
+            </div>
+        </div>
+    </div>
+
     <div class="controls">
-        <input type="text" v-model="nickname">
-        <input type="text" v-model="inputMessage">
-        <input type="button" v-on:click="sendMessage" value="Send">
+        <div class="nickname-wrapper">
+            <label for="nickname">Nickname</label>
+            <input id="nickname" type="text" v-model="nickname" placeholder="Your name" maxlength="20">
+        </div>
+        <input id="messageInput" type="text"
+               v-model="inputMessage"
+               v-on="keyup: sendOnEnter"
+               placeholder="Type a message..."
+               maxlength="500">
+        <button v-on:click="sendMessage">Send</button>
     </div>
 </div>
+
 <script src="http://cdnjs.cloudflare.com/ajax/libs/vue/1.0.26/vue.min.js" type="text/javascript"></script>
 <!--[starx websocket library](https://github.com/topfreegames/pitaya-client-websocket)-->
 <script src="protocol.js" type="text/javascript"></script>
-<script src="starx-wsclient.js" type="text/javascript"></script>
+<script src="kakastar-emitter.js" type="text/javascript"></script>
+<script src="kakastar-codec.js" type="text/javascript"></script>
+<script src="kakastar-heartbeat.js" type="text/javascript"></script>
+<script src="kakastar-client.js" type="text/javascript"></script>
 <script>
+    function pad(n) {
+        return n < 10 ? '0' + n : n;
+    }
+
+    function formatTime() {
+        var d = new Date();
+        return pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    function scrollToBottom() {
+        var list = document.getElementById('messageList');
+        if (list) {
+            list.scrollTop = list.scrollHeight;
+        }
+    }
+
     var v = new Vue({
         el: "#container",
         data: {
-            nickname:'guest' + Date.now(),
-            inputMessage:'',
+            nickname: 'guest' + Date.now(),
+            inputMessage: '',
+            connected: false,
             messages: []
         },
         methods: {
             sendMessage: function () {
-                console.log(this.inputMessage);
-                starx.notify('room.message', {name: this.nickname, content: this.inputMessage});
+                var text = this.inputMessage.trim();
+                if (!text) return;
+                starx.notify('room.message', {name: this.nickname, content: text});
                 this.inputMessage = '';
+                this.$nextTick(scrollToBottom);
+            },
+            sendOnEnter: function (e) {
+                if (e.keyCode === 13) {
+                    this.sendMessage();
+                }
+            },
+            addMessage: function (msg) {
+                if (!msg.time) msg.time = formatTime();
+                this.messages.push(msg);
+                this.$nextTick(scrollToBottom);
             }
         }
     });
 
     var onMessage = function (msg) {
-        v.messages.push(msg)
+        v.addMessage({
+            name: msg.name,
+            content: msg.content,
+            type: 'chat',
+            time: formatTime()
+        });
     };
 
     var join = function (data) {
         console.log(data);
-        if(data.code === 0) {
-            v.messages.push({name:'system', content:data.result});
-            starx.on('onMessage', onMessage)
+        if (data.code === 0) {
+            v.connected = true;
+            v.addMessage({
+                name: 'system',
+                content: data.result,
+                type: 'system',
+                time: formatTime()
+            });
+            starx.on('onMessage', onMessage);
         }
     };
 
     var onNewUser = function (data) {
         console.log(data);
-        v.messages.push({name:'system', content:data.content});
+        v.addMessage({
+            name: 'system',
+            content: data.content,
+            type: 'system',
+            time: formatTime()
+        });
     };
 
     var onMembers = function (data) {
         console.log(data);
-        v.messages.push({name:'system', content: "members: "+data.members});
+        v.addMessage({
+            name: 'system',
+            content: 'members: ' + data.members,
+            type: 'system',
+            time: formatTime()
+        });
     };
 
     starx.init({host: '127.0.0.1', port: 3250, path: '/'}, function () {
@@ -63,7 +395,7 @@
         starx.on("onNewUser", onNewUser);
         starx.on("onMembers", onMembers);
         starx.request("room.join", {}, join);
-    })
+    });
 </script>
 </body>
 </html>

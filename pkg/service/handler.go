@@ -251,6 +251,9 @@ func (h *HandlerService) Handle(conn acceptor.PlayerConn) {
 	}
 }
 
+// processPacket processes a packet received from a client
+// It handles handshake, handshake ack, data and heartbeat packets
+// 我想 是不是应该把他们分开啊  我特别讨厌放在一起
 func (h *HandlerService) processPacket(a agent.Agent, p *packet.Packet) error {
 	switch p.Type {
 	case packet.Handshake:

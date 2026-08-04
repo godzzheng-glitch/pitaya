@@ -110,6 +110,7 @@
    * @return {Emitter}
    */
 
+  //
   Emitter.prototype.emit = function(event){
     this._callbacks = this._callbacks || {};
     var args = [].slice.call(arguments, 1)
@@ -220,8 +221,13 @@
 
   var initCallback = null;
 
+  //我来看看原文是怎么实现的
   starx.init = function(params, cb) {
+    
+    //cb
     initCallback = cb;
+    
+    // params
     var host = params.host;
     var port = params.port;
     var path = params.path;
@@ -286,6 +292,7 @@
     return Message.encode(reqId, type, compressRoute, route, msg);
   };
 
+  //连接
   var connect = function(params, url, cb) {
     console.log('connect to ' + url);
 
@@ -301,6 +308,8 @@
       var obj = Package.encode(Package.TYPE_HANDSHAKE, Protocol.strencode(JSON.stringify(handshakeBuffer)));
       send(obj);
     };
+
+    //收到消息的回调
     var onmessage = function(event) {
       processPackage(Package.decode(event.data), cb);
       // new package arrived, update the heartbeat timeout
@@ -312,16 +321,28 @@
       starx.emit('io-error', event);
       console.error('socket error: ', event);
     };
+
+    // 看看onclose会干啥
     var onclose = function(event) {
       starx.emit('close',event);
       starx.emit('disconnect', event);
       console.log('socket close: ', event);
+
+      // 原文里 就有 reconnect 这个变量，表示是否需要重连
+      // 以及最大重连次数 默认10次 可以玩家自定义
       if(!!params.reconnect && reconnectAttempts < maxReconnectAttempts) {
+        
+        //表明正在重连中
         reconnect = true;
+        // 重连尝试次数+1
         reconnectAttempts++;
+
+        // 
         reconncetTimer = setTimeout(function() {
           connect(params, reconnectUrl, cb);
         }, reconnectionDelay);
+
+        //每次delay的时间都会翻倍
         reconnectionDelay *= 2;
       }
     };
@@ -461,6 +482,7 @@
     }
   };
 
+  //收到了数据包
   var onData = function(data) {
     var msg = data;
     if(decode) {
@@ -479,6 +501,7 @@
   handlers[Package.TYPE_DATA] = onData;
   handlers[Package.TYPE_KICK] = onKick;
 
+  // 收到消息 处理包体
   var processPackage = function(msgs) {
     if(Array.isArray(msgs)) {
       for(var i=0; i<msgs.length; i++) {
@@ -490,7 +513,10 @@
     }
   };
 
+  //处理消息 应该说是处理上层消息了
   var processMessage = function(starx, msg) {
+    // 如果没有id 应该说 有id的 都是客户端发上去 再被发下来的
+    // 所以需要去触发 cb 而服务器下来的 只要找路由
     if(!msg.id) {
       // server push message
       starx.emit(msg.route, msg.body);
@@ -537,6 +563,8 @@
   };
 
   var handshakeInit = function(data) {
+
+    //
     if(data.sys && data.sys.heartbeat) {
       heartbeatInterval = data.sys.heartbeat * 1000;   // heartbeat interval
       heartbeatTimeout = heartbeatInterval * 2;        // max heartbeat timeout
