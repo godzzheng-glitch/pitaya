@@ -131,32 +131,32 @@ type Pitaya interface {
 
 // App is the base app struct
 type App struct {
-	acceptors         []acceptor.Acceptor
-	config            config.PitayaConfig
-	debug             bool
-	dieChan           chan bool
-	heartbeat         time.Duration
-	onSessionBind     func(session.Session)
-	router            *router.Router
-	rpcClient         cluster.RPCClient
-	rpcServer         cluster.RPCServer
-	metricsReporters  []metrics.Reporter
-	running           bool
-	serializer        serialize.Serializer
-	server            *cluster.Server
-	serverMode        ServerMode
-	serviceDiscovery  cluster.ServiceDiscovery
-	startAt           time.Time
-	worker            *worker.Worker
-	remoteService     *service.RemoteService
-	handlerService    *service.HandlerService
-	handlerComp       []regComp
-	remoteComp        []regComp
-	modulesMap        map[string]interfaces.Module
-	modulesArr        []moduleWrapper
-	sessionModulesArr []sessionModuleWrapper
-	groups            groups.GroupService
-	sessionPool       session.SessionPool
+	acceptors         []acceptor.Acceptor          // 接收客户端连接的监听器集合
+	config            config.PitayaConfig          // Pitaya 的运行配置
+	debug             bool                         // 调试模式开关
+	dieChan           chan bool                    // 触发应用关闭流程的信号通道
+	heartbeat         time.Duration                // 客户端心跳检测间隔
+	onSessionBind     func(session.Session)        // 会话绑定用户后的回调函数
+	router            *router.Router               // 服务路由注册器
+	rpcClient         cluster.RPCClient            // 集群 RPC 客户端
+	rpcServer         cluster.RPCServer            // 集群 RPC 服务端
+	metricsReporters  []metrics.Reporter           // 指标上报器集合
+	running           bool                         // 应用运行状态标记
+	serializer        serialize.Serializer         // 消息序列化器
+	server            *cluster.Server              // 当前服务器的集群信息
+	serverMode        ServerMode                   // 服务器运行模式
+	serviceDiscovery  cluster.ServiceDiscovery     // 集群服务发现实现
+	startAt           time.Time                    // 应用创建时间
+	worker            *worker.Worker               // 异步 RPC 任务工作器
+	remoteService     *service.RemoteService       // 远程服务注册与调用管理器
+	handlerService    *service.HandlerService      // 本地 Handler 注册与请求分发管理器
+	handlerComp       []regComp                    // 待注册的本地 Handler 组件
+	remoteComp        []regComp                    // 待注册的远程组件
+	modulesMap        map[string]interfaces.Module // 按名称索引的模块集合
+	modulesArr        []moduleWrapper              // 按注册顺序保存的模块集合
+	sessionModulesArr []sessionModuleWrapper       // 实现会话生命周期接口的模块集合
+	groups            groups.GroupService          // 用户分组服务
+	sessionPool       session.SessionPool          // 会话对象池
 }
 
 // NewApp is the base constructor for a pitaya app instance
@@ -386,16 +386,32 @@ func (app *App) Start() {
 	app.shutdownComponents()
 }
 
+// listen 启动应用运行所需的组件、网络监听器、消息分发协程和业务模块，
+// 并在所有启动流程完成后将应用状态标记为运行中。
 func (app *App) listen() {
+
+	// 启动基础组件，通常包括 RPC、会话池、服务注册等依赖。
 	app.startupComponents()
+
 	// create global ticker instance, timer precision could be customized
 	// by SetTimerPrecision
+	// 这里创建了一个全局的定时器实例，定时器的精度可以通过 SetTimerPrecision 方法进行自定义设置。
+	// 初始化全局定时器。
+	// timer.Precision 控制定时器触发精度，可通过 SetTimerPrecision 配置。
 	timer.GlobalTicker = time.NewTicker(timer.Precision)
 
+	// 记录当前服务器实例的启动信息，便于定位服务类型和节点 ID。
 	logger.Log.Infof("starting server %s:%s", app.server.Type, app.server.ID)
+
+	// 按配置启动固定数量的消息分发协程。
+	// Dispatch 协程通常负责消费内部消息队列，并将消息路由到对应处理逻辑。
+	// kakassi 这边不是很理解 回头再看一下
 	for i := 0; i < app.config.Concurrency.Handler.Dispatch; i++ {
 		go app.handlerService.Dispatch(i)
 	}
+
+	// 逐个启动网络接收器。
+	// 一个 Acceptor 通常对应一个监听地址或一种传输协议。
 	for _, acc := range app.acceptors {
 		a := acc
 		go func() {

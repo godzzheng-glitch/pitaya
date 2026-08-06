@@ -32,16 +32,34 @@ type MemoryGroup struct {
 }
 
 // NewMemoryGroupService returns a new group instance
+// NewMemoryGroupService 创建一个内存群组服务实例
 func NewMemoryGroupService(config config.MemoryGroupConfig) *MemoryGroupService {
+
+	// 创建一个空的服务对象
 	service := &MemoryGroupService{}
+	// memoryOnce 保证这里的初始化逻辑在整个进程生命周期内只执行一次
 	memoryOnce.Do(func() {
+		// 创建全局群组表：
+		// key 是群组 ID，例如 "room_1001"
+		// value 是对应的群组对象
 		memoryGroups = make(map[string]*MemoryGroup)
+
+		// 创建全局 Context 和取消函数
+		// globalCtx 用于通知后台清理协程停止
 		globalCtx, globalCancel = context.WithCancel(context.Background())
+
+		// 清理协程加入 WaitGroup，方便服务关闭时等待它结束。
 		cleanupWG.Add(1)
+
+		// 启动后台协程，按 config.TickDuration 的时间间隔，
+		// 检查群组 TTL，并清理过期群组
 		go groupTTLCleanup(globalCtx, config.TickDuration)
 	})
+
 	// All services share the same cancel function
 	service.cancelFunc = globalCancel
+
+	// 返回服务实例
 	return service
 }
 

@@ -25,12 +25,20 @@ import (
 	"github.com/topfreegames/pitaya/v3/pkg/logger"
 )
 
+// regComp 表示一个等待启动阶段注册的组件
 type regComp struct {
+	// 组件实例
+	// Component 接口要求实现 Init AfterInit BeforeShutdown Shutdown
 	comp component.Component
+
+	// 注册选项，例如：
+	// component.WithName("room")
+	// component.WithNameFunc(strings.ToLower)
 	opts []component.Option
 }
 
 // Register register a component with options
+// 给app 注册一个 Component 并且附带一系列参数
 func (app *App) Register(c component.Component, options ...component.Option) {
 	app.handlerComp = append(app.handlerComp, regComp{c, options})
 }
@@ -40,6 +48,7 @@ func (app *App) RegisterRemote(c component.Component, options ...component.Optio
 	app.remoteComp = append(app.remoteComp, regComp{c, options})
 }
 
+// 启动所有组件 具体有哪些组件 后面再说
 func (app *App) startupComponents() {
 	// handler component initialize hooks
 	for _, c := range app.handlerComp {

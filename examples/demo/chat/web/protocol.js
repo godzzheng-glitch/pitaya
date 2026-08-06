@@ -152,24 +152,105 @@
    * @param  {Buffer} msg           message body bytes
    * @return {Buffer}               encode result
    */
+  /**
+   * 将业务 Message 编码为二进制字节数组。
+   *
+   * 最终数据结构：
+   *
+   * +--------+------------+----------------+-------------+----------+
+   * | flag   | id         | route          | body        |          |
+   * +--------+------------+----------------+-------------+----------+
+   * | 1 byte | 0~多字节   | 路由编码或文本 | 业务字节数据 |          |
+   * +--------+------------+----------------+-------------+----------+
+   *
+   * 字段是否存在由 type 决定：
+   * - request：flag + id + route + body
+   * - notify：flag + route + body
+   * - response：flag + id + body
+   * - push：flag + route + body
+   *
+   * @param {Number} id
+   *   消息 ID。
+   *   请求和响应通过相同 ID 建立对应关系。
+   *
+   * @param {Number} type
+   *   消息类型，例如 request、notify、response、push。
+   *
+   * @param {Number} compressRoute
+   *   路由压缩标记：
+   *   1 表示 route 使用数字编码；
+   *   0 表示 route 使用完整字符串。
+   *
+   * @param {Number|String} route
+   *   路由信息：
+   *   - 压缩路由：数字编码，例如 12；
+   *   - 普通路由：字符串，例如 'chat.chatHandler.send'。
+   *
+   * @param {Buffer|ByteArray} msg
+   *   已完成序列化的业务消息体字节数据。
+   *
+   * @return {ByteArray}
+   *   完整 Message 的二进制数据。
+   */
+
   Message.encode = function(id, type, compressRoute, route, msg){
+    
     // caculate message max length
-    var idBytes = msgHasId(type) ? caculateMsgIdBytes(id) : 0;
+    /**
+     * 计算消息总长度，提前分配精确大小的 ByteArray。
+     *
+     * Message 固定包含 flag；
+     * id、route、body 根据消息类型和实际内容追加。
+     */
+    var idBytes = msgHasId(type) ? calculateMsgIdBytes(id) : 0;
     var msgLen = MSG_FLAG_BYTES + idBytes;
 
+    /**
+     * 根据消息类型写入 route。
+     * 压缩路由写数字编码；
+     * 普通路由写长度和字符串字节数据。
+     */
+    /**
+    * 请求、通知、推送等带路由的消息进入此分支。
+    * 响应消息通常通过 id 找回原始请求路由。
+    */
     if(msgHasRoute(type)) {
       if(compressRoute) {
+
+        /**
+         * 压缩路由使用固定长度的数字编码。
+         * 例如：
+         * 'chat.chatHandler.send' -> 12
+         */
+
         if(typeof route !== 'number'){
           throw new Error('error flag for number route!');
         }
+        
+        // 压缩路由码的固定字节长度。
         msgLen += MSG_ROUTE_CODE_BYTES;
       } else {
+
+        /**
+         * 普通路由格式：
+         *
+         * +------------+--------------------+
+         * | routeLength| route bytes        |
+         * +------------+--------------------+
+         * | 1 byte     | routeLength bytes  |
+         * +------------+--------------------+
+         */
+
         msgLen += MSG_ROUTE_LEN_BYTES;
         if(route) {
+
+          // 将字符串路由转换为协议可写入的字节数据。
           route = Protocol.strencode(route);
           if(route.length>255) {
             throw new Error('route maxlength is overflow');
           }
+
+          // 加上完整路由字符串的字节长度。
           msgLen += route.length;
         }
       }
@@ -179,10 +260,18 @@
       msgLen += msg.length;
     }
 
+    // 一次性创建目标字节数组，避免编码过程反复扩容。
     var buffer = new ByteArray(msgLen);
     var offset = 0;
 
     // add flag
+    /**
+     * 写入 flag。
+     *
+     * flag 通常保存：
+     * - 消息类型 type；
+     * - 路由是否压缩 compressRoute。
+     */
     offset = encodeMsgFlag(type, compressRoute, buffer, offset);
 
     // add message id
@@ -196,6 +285,12 @@
     }
 
     // add body
+      /**
+     * 最后写入业务消息体。
+     * msg 通常来自：
+     *
+     * Protocol.strencode(JSON.stringify(body))
+     */
     if(msg) {
       offset = encodeMsgBody(msg, buffer, offset);
     }
@@ -272,16 +367,44 @@
     }
   };
 
+  // 根据消息类型判断是否包含 id 字段
+  // 其实就是 request 和 response 类型的消息才有 id 字段
   var msgHasId = function(type) {
     return type === Message.TYPE_REQUEST || type === Message.TYPE_RESPONSE;
   };
 
+  // 是否需要route reqest notify push 都需要route
+  // 这里很好理解 response因为有id作为索引 只是为了唤起 cb 所以是不需要 route的
   var msgHasRoute = function(type) {
     return type === Message.TYPE_REQUEST || type === Message.TYPE_NOTIFY ||
            type === Message.TYPE_PUSH;
   };
 
-  var caculateMsgIdBytes = function(id) {
+  // 计算消息 id 占用的字节数
+  /**
+   * 计算消息 ID 编码后占用的字节数。
+   *
+   * 消息 ID 使用变长整数编码：
+   * 每个字节存储 7 位有效数据；
+   * 剩余 1 位通常用于表示后续是否还有数据。
+   *
+   * 示例：
+   * - 0 ~ 127：占 1 字节
+   * - 128 ~ 16383：占 2 字节
+   * - 16384 ~ 2097151：占 3 字节
+   *
+   * @param {Number} id 消息 ID。
+   * @return {Number} 编码该 ID 所需的字节数。
+   */
+    /**
+     * 每轮处理 7 位：
+     * - len 记录当前已使用的字节数；
+     * - id >>= 7 移除已处理的低 7 位。
+     *
+     * do...while 保证 id 为 0 时也会占用 1 个字节。
+     */
+
+  var calculateMsgIdBytes = function(id) {
     var len = 0;
     do {
       len += 1;

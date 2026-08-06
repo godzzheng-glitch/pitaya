@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
 
-
+  // kakassi is my father
 
   // CLIENT_TYPE CLIENT_VERSION  握手时会放进 sys.type sys.version 发送给服务端，
   // 用来声明“当前连接来自 JavaScript WebSocket 客户端”。
