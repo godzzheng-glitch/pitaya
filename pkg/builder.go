@@ -85,13 +85,19 @@ func NewDefaultBuilder(isFrontend bool, serverType string, serverMode ServerMode
 
 // NewBuilder return a builder instance with default dependency instances for a pitaya App,
 // with configs explicitly defined
+// NewBuilder 根据传入的服务信息、运行模式和配置，创建带默认依赖的 Builder
 func NewBuilder(isFrontend bool,
 	serverType string,
 	serverMode ServerMode,
 	serverMetadata map[string]string,
 	config config.PitayaConfig,
 ) *Builder {
+
+	// 创建当前服务节点，生成唯一 ID，并保存服务类型、前端标记和元数据
 	server := cluster.NewServer(uuid.New().String(), serverType, isFrontend, serverMetadata)
+
+	//dieChan 用于协调 goroutine 退出
+	//各组件里监听它：
 	dieChan := make(chan bool)
 
 	metricsReporters := []metrics.Reporter{}

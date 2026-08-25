@@ -175,6 +175,7 @@ func (h *HandlerService) ReportMetrics() {
 
 // Register registers components
 func (h *HandlerService) Register(comp component.Component, opts []component.Option) error {
+
 	s := component.NewService(comp, opts)
 
 	if _, ok := h.services[s.Name]; ok {

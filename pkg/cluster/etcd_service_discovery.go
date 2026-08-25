@@ -38,24 +38,52 @@ import (
 	"google.golang.org/grpc"
 )
 
+//
+//serverMapByType 按服务器类型组织服务器列表。
+//结构有两层 map：
+//serverMapByType
+// │
+// ├── "map"
+// │     ├── "server-1" → *Server
+// │     └── "server-2" → *Server
+// │
+// ├── "gate"
+// │     ├── "server-3" → *Server
+// │     └── "server-4" → *Server
+// │
+// └── "chat"
+//       └── "server-5" → *Server
+
+// serverMapByType
+//     ↓
+// 普通 map
+//     ↓
+// 需要自己用 RWMutex 保护
+
+// serverMapByID
+//     ↓
+// sync.Map
+//     ↓
+// 自己提供并发安全
+
 type etcdServiceDiscovery struct {
-	cli                    *clientv3.Client
-	syncServersInterval    time.Duration
-	heartbeatTTL           time.Duration
-	logHeartbeat           bool
-	lastHeartbeatTime      time.Time
-	leaseID                clientv3.LeaseID
-	mapByTypeLock          sync.RWMutex
-	serverMapByType        map[string]map[string]*Server
-	serverMapByID          sync.Map
-	etcdEndpoints          []string
-	etcdUser               string
-	etcdPass               string
-	etcdPrefix             string
-	etcdDialTimeout        time.Duration
-	running                bool
-	server                 *Server
-	stopChan               chan bool
+	cli                    *clientv3.Client              //作用：连接 etcd 的客户端对象。
+	syncServersInterval    time.Duration                 //服务同步间隔。
+	heartbeatTTL           time.Duration                 //服务器死掉以后，其他服务器多久能发现它消失？
+	logHeartbeat           bool                          //是否打印心跳相关日志
+	lastHeartbeatTime      time.Time                     //记录上一次心跳/续租的时间 用于判断心跳状态、日志、超时等。
+	leaseID                clientv3.LeaseID              //它表示当前服务器注册到 etcd 后获得的 Lease ID。
+	mapByTypeLock          sync.RWMutex                  // 保护 serverMapByType 的锁
+	serverMapByType        map[string]map[string]*Server //按服务器类型组织服务器列表。
+	serverMapByID          sync.Map                      //按照 Server ID 查服务器。
+	etcdEndpoints          []string                      //etcd 地址列表。
+	etcdUser               string                        //连接 etcd 使用的用户名。
+	etcdPass               string                        //连接 etcd 使用的密码。
+	etcdPrefix             string                        //所有服务注册信息在 etcd 中使用的路径前缀。
+	etcdDialTimeout        time.Duration                 //连接 etcd 时允许等待多久。
+	running                bool                          //服务发现组件当前是否正在运行。
+	server                 *Server                       //我自己这个服务器的信息。
+	stopChan               chan bool                     //通知某个 goroutine 停止工作。
 	stopLeaseChan          chan bool
 	lastSyncTime           time.Time
 	listeners              []SDListener

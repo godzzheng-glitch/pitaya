@@ -71,6 +71,8 @@ func (app *App) startupComponents() {
 	}
 
 	// register all components
+	// 将所有的handler 真正地注册到 service里去
+	// 之前只是在handlerComp 的regcomp 里暂存
 	for _, c := range app.handlerComp {
 		if err := app.handlerService.Register(c.comp, c.opts); err != nil {
 			logger.Log.Errorf("Failed to register handler: %s", err.Error())

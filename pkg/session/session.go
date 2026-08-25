@@ -102,11 +102,20 @@ type sessionImpl struct {
 	Subscriptions       []*nats.Subscription                  // subscription created on bind when using nats rpc server
 	requestsInFlight    ReqInFlight                           // whether the session is waiting from a response from a remote
 	pool                *sessionPoolImpl
-	logger              interfaces.Logger                     // logger instance for this session
+	logger              interfaces.Logger // logger instance for this session
 }
 
+// ReqInFlight records RPC requests sent by a session that are still awaiting
+// a remote response. During session shutdown, these records keep the session
+// alive long enough for the outstanding RPC calls to finish.
+// ReqInFlight 记录一个 Session 已发送且仍在等待远端响应的 RPC 请求。
+// Session 关闭期间，这些记录会使 Session 保持存活，直到未完成的 RPC 调用结束。
 type ReqInFlight struct {
-	m  map[string]string
+	// m maps a request ID to its route or method name for shutdown diagnostics.
+	// m 保存“请求 ID → 路由或方法名”的映射，供关闭 Session 时输出诊断日志。
+	m map[string]string
+	// mu protects concurrent reads and writes to m.
+	// mu 保护 m 的并发读写。
 	mu sync.RWMutex
 }
 
@@ -114,6 +123,9 @@ type ReqInFlight struct {
 // All data is released when the low-level connection is broken.
 // Session instance related to the client will be passed to Handler method in the
 // context parameter.
+// Session 表示一个客户端会话，可在连接期间存储数据
+// 底层连接断开时，所有数据都会被释放
+// 与客户端关联的 Session 实例会通过 context 参数传递给 Handler 方法
 type Session interface {
 	GetOnCloseCallbacks() []func()
 	GetIsFrontend() bool
@@ -200,15 +212,17 @@ func (pool *sessionPoolImpl) NewSession(entity networkentity.NetworkEntity, fron
 		pool.sessionsByID.Store(s.id, s)
 		atomic.AddInt64(&pool.SessionCount, 1)
 	}
-	s.logger = s.logger.WithField("session_id",s.id)
+	s.logger = s.logger.WithField("session_id", s.id)
 	if len(UID) > 0 {
 		s.uid = UID[0]
-		s.logger = s.logger.WithField("uid",s.uid)
+		s.logger = s.logger.WithField("uid", s.uid)
 	}
 	return s
 }
 
-// NewSessionPool returns a new session pool instance
+// NewSessionPool 创建应用级会话池，并初始化会话生命周期所需的共享状态：
+// 绑定前后的回调列表、握手校验器、全局关闭回调，以及递增的 Session ID 生成器。
+// sessionsByUID 和 sessionsByID 保持 sync.Map 零值，该零值已具备可用性。
 func NewSessionPool() SessionPool {
 	return &sessionPoolImpl{
 		sessionBindCallbacks:  make([]func(ctx context.Context, s Session) error, 0),
