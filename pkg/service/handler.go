@@ -59,6 +59,20 @@ var (
 	handlerType = "handler"
 )
 
+// server *cluster.Server
+// 集群节点的“身份证/节点描述对象”。
+// 持有的“当前 Pitaya Server 身份/上下文对象”。
+// 每一个实际运行的 Pitaya 进程，都可以对应一个 cluster.Server，
+// 里面会描述这个节点的一些信息，例如：
+// Server
+// ├── ID
+// ├── Type
+// ├── Host
+// ├── Port
+// ├── Metadata
+// └── ...
+// 表明我自己这个服务器是谁
+
 type (
 	// HandlerService service
 	HandlerService struct {
@@ -121,12 +135,25 @@ func NewHandlerService(
 }
 
 // Dispatch message to corresponding logic handler
+// 把消息分法到对应的 逻辑 handler
+// Dispatch 负责从两个消息队列中取消息，
+// 然后把消息分发给对应的业务逻辑。
+// thread 表示当前是第几个 Dispatch worker。
+// 这里主要用于 worker 数量/监控统计。
 func (h *HandlerService) Dispatch(thread int) {
-	// TODO: This timer is being stopped multiple times, it probably doesn't need to be stopped here
+	// TODO: This timer is being stopped multiple times,
+	// it probably doesn't need to be stopped here
+	// Dispatch goroutine 退出时停止全局定时器。
+	//
+	// TODO：作者自己也觉得这里有问题：
+	// GlobalTicker 可能被多个 Dispatch goroutine 重复 Stop。
 	defer timer.GlobalTicker.Stop()
 
 	// register this goroutine as part of the dispatch worker pool so its utilization
 	// can be reported (see ReportMetrics)
+	// 记录当前 Dispatch worker 已经启动。
+	// numDispatch 表示：
+	// HandlerService 当前一共有多少个 Dispatch worker。
 	atomic.AddInt32(&h.numDispatch, 1)
 
 	for {
@@ -195,22 +222,33 @@ func (h *HandlerService) Register(comp component.Component, opts []component.Opt
 }
 
 // Handle handles messages from a conn
+// HandlerService 为一个连接创建 Agent，并启动 Agent 的后台协程
+// 当前协程负责持续从连接中读取消息、解码数据包，并将数据包交给对应的处理流程
+// 当连接关闭或读取、解码、处理过程中发生错误时，结束当前 Session 的生命周期
 func (h *HandlerService) Handle(conn acceptor.PlayerConn) {
 	// create a client agent and startup write goroutine
+	// 为当前连接创建 Agent。
+	// Agent 是连接在 Pitaya 中对应的运行实体，负责维护 Session 以及连接相关的读写、心跳等状态
 	a := h.agentFactory.CreateAgent(conn)
 
 	// startup agent goroutine
+	// 启动 Agent 的后台协程。
+	// Agent.Handle() 会负责 Agent 自身的运行逻辑，例如写消息、心跳以及等待 Agent 退出
 	go a.Handle()
 
 	logger.Log.Debugf("New session established: %s", a.String())
 
 	// guarantee agent related resource is destroyed
+	// Handle() 退出时关闭 Session，释放当前连接对应的资源
 	defer func() {
 		a.GetSession().Close()
 		logger.Log.Debugf("Session read goroutine exit, SessionID=%d, UID=%s", a.GetSession().ID(), a.GetSession().UID())
 	}()
 
 	for {
+
+		// 从当前连接中读取下一条完整消息。
+		// msg为字节流
 		msg, err := conn.GetNextMessage()
 
 		if err != nil {

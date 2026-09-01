@@ -239,28 +239,98 @@ func (gs *GRPCClient) SendPush(userID string, frontendSv *Server, push *protos.P
 }
 
 // AddServer is called when a new server is discovered
+// 服务发现 etcd 发现一个新的 Server 后，GRPCClient 根据它的 Metadata 算出 host:port，
+// 创建一个 gRPC 客户端，并把这个客户端保存到 clientMap。
 func (gs *GRPCClient) AddServer(sv *Server) {
+
+	// host：服务器的主机地址，例如：
+	//   127.0.0.1
+	//   192.168.1.100
+	//
+	// port：服务器的端口，例如：
+	//   3000
+	//   3250
+	//
+	// portKey：告诉后面应该从 Metadata 的哪个 key 读取端口。
+	// 因为不同情况下可能使用不同的端口字段。
 	var host, port, portKey string
+
+	// ok 用来判断从 Metadata 中读取 port 时，key 是否存在。
 	var ok bool
 
+	// 根据 Server 的 Metadata 决定使用哪个 host，以及对应的 portKey。
+	//
+	// 例如可能得到：
+	//   host    = "192.168.1.100"
+	//   portKey = "grpcPort"
+	//
+	// getServerHost() 内部会根据 region 、 externalHost、
+	// internalHost 等信息决定最终应该连接哪个地址。
 	host, portKey = gs.getServerHost(sv)
 	if host == "" {
 		logger.Log.Errorf("[grpc client] server %s has no grpcHost specified in metadata", sv.ID)
 		return
 	}
 
+	// 根据 getServerHost() 返回的 portKey，
+	// 从 Server.Metadata 中取出对应的端口。
+	//
+	// 例如：
+	// portKey = "grpcPort"
+	//
+	// 那么这里实际执行的就是：
+	// port = sv.Metadata["grpcPort"]
 	if port, ok = sv.Metadata[portKey]; !ok {
 		logger.Log.Errorf("[grpc client] server %s has no %s specified in metadata", sv.ID, portKey)
 		return
 	}
 
+	// 把 host 和 port 拼成 gRPC 连接地址。
+	//
+	// 例如：
+	//   host = "192.168.1.100"
+	//   port = "3000"
+	//
+	// 最终：
+	//   address = "192.168.1.100:3000"
 	address := fmt.Sprintf("%s:%s", host, port)
+	// 创建一个 grpcClient。
+	//
+	// 此时只是把服务器地址保存下来：
+	//   client.address = "192.168.1.100:3000"
+	//
+	// 真正建立 gRPC connection 是否立即发生，
+	// 取决于下面的 lazy 配置。
 	client := &grpcClient{address: address}
+
+	// lazy == false：
+	//   AddServer 时立即建立 gRPC 连接。
+	//
+	// lazy == true：
+	//   AddServer 时只创建 grpcClient，
+	//   等真正使用这个 client 时再建立连接。
 	if !gs.lazy {
 		if err := client.connect(); err != nil {
 			logger.Log.Errorf("[grpc client] unable to connect to server %s at %s: %v", sv.ID, address, err)
 		}
 	}
+
+	// 把这个 grpcClient 保存到 clientMap。
+	//
+	// key：
+	//   sv.ID
+	//
+	// value：
+	//   client
+	//
+	// 于是以后可以通过 Server ID 找到对应的 gRPC Client。
+	//
+	// 例如：
+	//   clientMap["server-123"] -> grpcClient{
+	//       address: "192.168.1.100:3000"
+	//   }
+	//
+	// Store 是 sync.Map 的方法，因此这里也是并发安全的。
 	gs.clientMap.Store(sv.ID, client)
 	logger.Log.Debugf("[grpc client] added server %s at %s", sv.ID, address)
 }
@@ -285,42 +355,79 @@ func (gs *GRPCClient) Shutdown() error {
 	return nil
 }
 
+//                 Server 有 Region？
+//                      │
+//           ┌──────────┴──────────┐
+//          否                     是
+//           │                      │
+//    有 externalHost？       Client 和 Server
+//      │        │             是同 Region？
+//     是        否              │       │
+//      │        │             是       否
+//   external   internal        │       │
+//                           internal   有 externalHost？
+//                                       │       │
+//                                      是       否
+//                                       │       │
+//                                    external  internal
+
 func (gs *GRPCClient) getServerHost(sv *Server) (host, portKey string) {
 	var (
-		serverRegion, hasRegion   = sv.Metadata[constants.RegionKey]
+		// 从服务元数据中读取区域及内外网地址；hasRegion/hasExternal 用于标记值是否有效。
+		// 服务端所在的 Region
+		serverRegion, hasRegion = sv.Metadata[constants.RegionKey]
+		// 服务端提供给“跨 Region 访问”的外部 Host
 		externalHost, hasExternal = sv.Metadata[constants.GRPCExternalHostKey]
-		internalHost, _           = sv.Metadata[constants.GRPCHostKey]
+		// 服务端提供给“同 Region / 内网访问”的 Host
+		internalHost, _ = sv.Metadata[constants.GRPCHostKey]
 	)
 
+	// 空字符串视为未配置，避免仅存在键但没有可用地址时误走对应分支。
 	hasRegion = hasRegion && serverRegion != ""
 	hasExternal = hasExternal && externalHost != ""
 
 	if !hasRegion {
+		// 缺少区域时无法判断网络范围，优先使用显式配置的外网地址。
 		if hasExternal {
 			logger.Log.Warnf("[grpc client] server %s has no region specified in metadata, using external host", sv.ID)
 			return externalHost, constants.GRPCExternalPortKey
 		}
 
+		// 区域和外网地址都缺失时，回退到内网地址。
 		logger.Log.Warnf("[grpc client] server %s has no region nor external host specified in metadata, using internal host", sv.ID)
 		return internalHost, constants.GRPCPortKey
 	}
 
+	// 同区域服务走内网；跨区域且未提供外网地址时也只能使用内网地址。
 	if gs.infoRetriever.Region() == serverRegion || !hasExternal {
 		logger.Log.Infof("[grpc client] server %s is in same region or external host not provided, using internal host", sv.ID)
 		return internalHost, constants.GRPCPortKey
 	}
 
+	// 跨区域服务优先通过外网地址访问。
 	logger.Log.Infof("[grpc client] server %s is in other region, using external host", sv.ID)
 	return externalHost, constants.GRPCExternalPortKey
 }
 
+// connect 建立与远端 gRPC Server 的连接。
 func (gc *grpcClient) connect() error {
+	// 加锁，防止多个 goroutine 同时调用 connect，
+	// 导致重复建立 gRPC 连接。
 	gc.lock.Lock()
 	defer gc.lock.Unlock()
+
+	// 已经连接成功，直接返回。
+	// 这样 connect() 具备幂等性：调用多次只建立一次连接。
 	if gc.connected {
 		return nil
 	}
 
+	// 创建一个 gRPC ClientConn。
+	//
+	// gc.address 一般类似：
+	//   "127.0.0.1:3000"
+	//
+	// WithInsecure() 表示这个 gRPC 连接不使用 TLS 加密。
 	conn, err := grpc.Dial(
 		gc.address,
 		grpc.WithInsecure(),
@@ -328,7 +435,18 @@ func (gc *grpcClient) connect() error {
 	if err != nil {
 		return err
 	}
+
+	// 基于 ClientConn 创建 Pitaya RPC Client。
+	//
+	// conn：
+	//   底层 gRPC 连接
+	//
+	// c：
+	//   上层真正调用 RPC 方法的客户端对象
 	c := protos.NewPitayaClient(conn)
+
+	// 保存 RPC Client。
+	// 后面发送 RPC 请求时，通过 gc.cli 调用。
 	gc.cli = c
 	gc.conn = conn
 	gc.connected = true

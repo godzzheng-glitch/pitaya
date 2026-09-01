@@ -305,6 +305,7 @@ func (app *App) Start() {
 		logger.Log.Fatal("frontend servers should have at least one configured acceptor")
 	}
 
+	// 在集群模式下 才会需要启动
 	if app.serverMode == Cluster {
 		if reflect.TypeOf(app.rpcClient) == reflect.TypeOf(&cluster.GRPCClient{}) {
 			app.serviceDiscovery.AddListener(app.rpcClient.(*cluster.GRPCClient))

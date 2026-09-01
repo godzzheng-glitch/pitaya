@@ -40,6 +40,17 @@ func (h *HandlerPool) GetHandlers() map[string]*component.Handler {
 }
 
 // ProcessHandlerMessage ...
+// 1 根据 route 找到具体 Handler，
+// 2 把收到的 []byte 还原成参数，执行 Handler，
+// 3 再把返回结果重新序列化成 []byte
+// @ctx        当前请求的上下文
+// @rt         route，例如 room.join
+// @serializer JSON / Protobuf 等序列化器
+// @handlerHooks Handler 执行前后的 Pipeline
+// @session    当前玩家的 Session
+// @data       客户端/远程服务器传来的原始数据
+// @msgTypeIface 消息类型，例如 Request / Notify
+// @remote     是否来自远程 RPC
 func (h *HandlerPool) ProcessHandlerMessage(
 	ctx context.Context,
 	rt *route.Route,

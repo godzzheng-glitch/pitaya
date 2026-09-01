@@ -38,6 +38,33 @@ import (
 	"google.golang.org/grpc"
 )
 
+/////////////////////////////////////////////////////////
+//                      etcd
+//                       │
+//                       │ Watch
+//                       ↓
+//            etcdServiceDiscovery
+//                       │
+//              发现服务发生变化
+//                       │
+//           ┌───────────┴───────────┐
+//           │                       │
+//       server A 加入           server B 删除
+//           │                       │
+//           └───────────┬───────────┘
+//                       ↓
+//                 listeners
+//                       │
+//          ┌────────────┴────────────┐
+//          ↓                         ↓
+//     GRPCClient                 其他 Listener
+//          │
+//          ↓
+//    更新 RPC 路由
+//
+///////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////
 //
 //serverMapByType 按服务器类型组织服务器列表。
 //结构有两层 map：
@@ -53,7 +80,11 @@ import (
 // │
 // └── "chat"
 //       └── "server-5" → *Server
+// ///////////////////////////////////////////////////
 
+// ///////////////////////////////////////////////////
+
+// ///////////////////////////////////////////////////
 // serverMapByType
 //     ↓
 // 普通 map
@@ -65,6 +96,37 @@ import (
 // sync.Map
 //     ↓
 // 自己提供并发安全
+// ///////////////////////////////////////////////////
+
+// ///////////////////////////////////////////////////
+// lastHeartbeatTime：  	我自己的 Lease 最近什么时候续过
+// lastSyncTime：			我最近什么时候同步过服务器列表
+
+// heartbeat
+//     ↓
+// 我还活着
+//     ↓
+// lastHeartbeatTime
+// ///////////////////////////////////////////////////
+
+// ///////////////////////////////////////////////////
+// sync
+//     ↓
+// 我知道其他服务器是谁
+//     ↓
+// lastSyncTime
+// ///////////////////////////////////////////////////
+
+// ///////////////////////////////////////////////////
+//
+//
+//
+// 所以 listeners 本身不负责发现服务。
+//
+// 它负责保存：
+//
+// “发现服务发生变化以后，我应该通知谁？”
+// ////////////////////////////////////////////////////
 
 type etcdServiceDiscovery struct {
 	cli                    *clientv3.Client              //作用：连接 etcd 的客户端对象。
@@ -83,19 +145,19 @@ type etcdServiceDiscovery struct {
 	etcdDialTimeout        time.Duration                 //连接 etcd 时允许等待多久。
 	running                bool                          //服务发现组件当前是否正在运行。
 	server                 *Server                       //我自己这个服务器的信息。
-	stopChan               chan bool                     //通知某个 goroutine 停止工作。
-	stopLeaseChan          chan bool
-	lastSyncTime           time.Time
-	listeners              []SDListener
-	revokeTimeout          time.Duration
-	grantLeaseTimeout      time.Duration
-	grantLeaseMaxRetries   int
-	grantLeaseInterval     time.Duration
-	shutdownDelay          time.Duration
-	appDieChan             chan bool
-	serverTypesBlacklist   []string
-	syncServersParallelism int
-	syncServersRunning     chan bool
+	stopChan               chan bool                     //通知某个 goroutine 停止工作。 // 通知负责服务同步等工作的 goroutine 停止。
+	stopLeaseChan          chan bool                     // 通知负责 Lease 心跳/续租的 goroutine 停止。
+	lastSyncTime           time.Time                     // 记录上一次从 etcd 同步服务器信息的时间。
+	listeners              []SDListener                  // 服务发现事件监听器，用于接收服务器加入、离开、变化等事件。
+	revokeTimeout          time.Duration                 // 撤销当前服务器 Lease 时允许等待的最长时间。
+	grantLeaseTimeout      time.Duration                 // 向 etcd 申请 Lease 时允许等待的最长时间。
+	grantLeaseMaxRetries   int                           // 申请 Lease 失败时允许进行的最大重试次数。
+	grantLeaseInterval     time.Duration                 // 多次申请 Lease 之间等待的时间。
+	shutdownDelay          time.Duration                 // 服务关闭时等待的延迟时间，用于给其他清理/通知操作留出时间。
+	appDieChan             chan bool                     // 接收应用退出通知，用于触发服务发现组件的关闭流程。
+	serverTypesBlacklist   []string                      // 服务类型黑名单；这些类型的服务器不会被服务发现组件处理或同步。
+	syncServersParallelism int                           // 同步服务器信息时允许并行处理的最大任务数。
+	syncServersRunning     chan bool                     // 控制/限制同时运行的服务器同步任务数量。
 }
 
 // NewEtcdServiceDiscovery ctor

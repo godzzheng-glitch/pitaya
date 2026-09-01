@@ -23,20 +23,25 @@ package packet
 import "errors"
 
 // Type represents the network packet's type such as: handshake and so on.
+// packet 类型
 type Type byte
 
 const (
 	_ Type = iota
 	// Handshake represents a handshake: request(client) <====> handshake response(server)
+	// Handshake 为1
 	Handshake = 0x01
 
 	// HandshakeAck represents a handshake ack from client to server
+	// HandshakeAck 为2
 	HandshakeAck = 0x02
 
 	// Heartbeat represents a heartbeat
+	// 心跳 为3
 	Heartbeat = 0x03
 
 	// Data represents a common data packet
+	// 数据包为4
 	Data = 0x04
 
 	// Kick represents a kick off packet
